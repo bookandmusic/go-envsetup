@@ -1,0 +1,46 @@
+name: Go Build and Package
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]  # 构建Linux和macOS
+        goarch: [amd64, arm64] # 针对amd64和arm64架构
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Get the latest tag
+        id: get_tag
+        run: echo "LATEST_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+
+      - name: Build for ${{ matrix.goos }}_${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p build/${{ matrix.goos }}_${{ matrix.goarch }}
+          go build -o build/${{ matrix.goos }}_${{ matrix.goarch }}/envsetup
+
+      - name: Archive binary
+        run: |
+          cd build/${{ matrix.goos }}_${{ matrix.goarch }}
+          zip ../../envsetup_${{ matrix.goos }}_${{ matrix.goarch }}.zip envsetup
+
+      - name: Upload tar to release assets
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.LATEST_TAG }}
+          allowUpdates: true
+          artifacts: "envsetup_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
