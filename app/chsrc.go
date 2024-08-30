@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/bookandmusic/envsetup/config"
 	"github.com/bookandmusic/envsetup/utils"
@@ -11,19 +10,21 @@ import (
 
 // Define ChsrcManager to handle chsrc operations
 type ChsrcManager struct {
-	Name     string
-	config   *config.Config
-	chsrcDir string
+	Name    string
+	ower    string
+	repo    string
+	tagName string
+	config  *config.Config
 }
 
 func NewChsrcManager() *ChsrcManager {
 	config := config.GetConfig()
-
-	chsrcDir := fmt.Sprintf("%s/.local/bin", config.HomeDir)
 	return &ChsrcManager{
-		Name:     "chsrc",
-		config:   config,
-		chsrcDir: chsrcDir,
+		Name:    "chsrc",
+		ower:    "RubyMetric",
+		repo:    "chsrc",
+		tagName: "v0.1.8",
+		config:  config,
 	}
 }
 
@@ -31,10 +32,8 @@ func (cm *ChsrcManager) GetName() string {
 	return cm.Name
 }
 
-func (cm *ChsrcManager) IsInstalled() bool {
-	// Check if chsrc is installed
-	_, err := exec.LookPath("chsrc")
-	return err == nil
+func (cm *ChsrcManager) isInstalled() bool {
+	return utils.IsCommandAvailable("chsrc")
 }
 
 func (cm *ChsrcManager) Installing(flags *GlobalFlags) error {
@@ -47,79 +46,45 @@ func (cm *ChsrcManager) Installing(flags *GlobalFlags) error {
 	if cm.config.ARCH == "arm64" {
 		arch = "aarch64"
 	}
+	srcFileName := fmt.Sprintf("chsrc-%s-%s", arch, osType)
 
 	githubInfo := utils.NewGithubRepoInfo(
-		"RubyMetric", "chsrc",
-		fmt.Sprintf("chsrc-%s-%s", arch, osType),
+		cm.ower, cm.repo,
 		flags.HttpProxy,
 		flags.GithubProxy,
+		cm.config.Logger,
 	)
 
-	var (
-		tagName string
-		err     error
-	)
+	var tagName string
 	if flags.Tag == "" {
-		tagName, err = githubInfo.GetLatestReleaseTag()
-		if err != nil {
-			cm.config.Logger.Errorf("获取chsrc最新版本失败:%s", err)
-			tagName = "v0.1.8"
+		tagName = githubInfo.GetLatestReleaseTag()
+		if tagName == "" {
+			tagName = cm.tagName
 		}
-		cm.config.Logger.Infof("获取chsrc最新版本:%s", tagName)
 	} else {
 		tagName = flags.Tag
 	}
 
-	if err := os.MkdirAll(cm.chsrcDir, os.ModePerm); err != nil {
-		cm.config.Logger.Errorf("创建目录%s失败:%s", cm.chsrcDir, err)
+	downloadFile := fmt.Sprintf("/tmp/%s", "chsrc")
+	if err := utils.RemoveFile(downloadFile, cm.config.Logger); err != nil {
 		return err
 	}
-	cm.config.Logger.Infof("已创建目录:%s", cm.chsrcDir)
 
-	chsrcPath := fmt.Sprintf("%s/chsrc", cm.chsrcDir)
-	if err := os.RemoveAll(chsrcPath); err != nil && !os.IsNotExist(err) {
-		cm.config.Logger.Errorf("清理文件%s失败:%s", chsrcPath, err)
+	if err := githubInfo.DownloadReleaseLatestFile(downloadFile, srcFileName, tagName); err != nil {
 		return err
 	}
-	cm.config.Logger.Infof("清理文件%s", chsrcPath)
 
-	downloadFile := fmt.Sprintf("%s/%s", cm.chsrcDir, "chsrc")
-	cm.config.Logger.Infof("开始下载chsrc,版本:%s, 文件:%s", tagName, githubInfo.FileName)
-	if err := githubInfo.DownloadReleaseLatestFile(downloadFile, tagName); err != nil {
-		cm.config.Logger.Errorf("下载chsrc文件%s失败:%s", githubInfo.FileName, err)
+	cmdStr := fmt.Sprintf("install -m 755 %s /usr/local/bin", downloadFile)
+	cmdStr = utils.GenerateCmd(cmdStr, true, cm.config.IsRoot)
+	if err := utils.ExecCmd(cmdStr, cm.config.Logger); err != nil {
 		return err
 	}
-	cm.config.Logger.Infof("已下载chsrc文件:%s", githubInfo.FileName)
 
-	// 设置文件为可执行权限
-	err = os.Chmod(downloadFile, 0o755) // 0755 是 Unix 文件权限中的常见可执行权限
-	if err != nil {
-		cm.config.Logger.Errorf("设置文件%s为可执行权限失败:%s", downloadFile, err)
-		os.Exit(1)
-	}
-
-	cm.config.Logger.Infof("设置文件%s为可执行权限成功。", downloadFile)
-
-	// 更新 .bashrc 和 .zshrc
-	shellFiles := []string{
-		fmt.Sprintf("%s/.bashrc", cm.config.HomeDir),
-		fmt.Sprintf("%s/.zshrc", cm.config.HomeDir),
-	}
-	contentToAdd := `
-export PATH=$PATH:~/.local/bin
-`
-	for _, shellFile := range shellFiles {
-		if err := utils.UpdateConfigFiles(shellFile, contentToAdd); err != nil {
-			cm.config.Logger.Errorf("文件%s添加配置失败:%s", shellFile, err)
-		} else {
-			cm.config.Logger.Infof("文件%s添加配置成功", shellFile)
-		}
-	}
 	return nil
 }
 
 func (cm *ChsrcManager) Install(flags *GlobalFlags) error {
-	if !flags.Force && cm.IsInstalled() {
+	if !flags.Force && cm.isInstalled() {
 		cm.config.Logger.Warn("chsrc已经安装。使用 -f 选项强制重新安装。")
 		return nil
 	}
@@ -127,6 +92,7 @@ func (cm *ChsrcManager) Install(flags *GlobalFlags) error {
 	// Add installation logic here
 	cm.config.Logger.Info("开始安装chsrc...")
 	if err := cm.Installing(flags); err != nil {
+		cm.config.Logger.Errorf("chsrc安装失败!")
 		os.Exit(1)
 	}
 	cm.config.Logger.Infof("chsrc安装成功!")
@@ -134,7 +100,7 @@ func (cm *ChsrcManager) Install(flags *GlobalFlags) error {
 }
 
 func (cm *ChsrcManager) Update(flags *GlobalFlags) error {
-	if !cm.IsInstalled() {
+	if !cm.isInstalled() {
 		cm.config.Logger.Warn("chsrc尚未安装。请使用 'install' 命令首先安装它。")
 		return nil
 	}
@@ -150,13 +116,12 @@ func (cm *ChsrcManager) Update(flags *GlobalFlags) error {
 
 func (cm *ChsrcManager) Delete(flags *GlobalFlags) error {
 	cm.config.Logger.Info("开始删除chsrc...")
-	// 删除chsrc 二进制文件
-	downloadFile := fmt.Sprintf("%s/%s", cm.chsrcDir, "chsrc")
-	if err := os.Remove(downloadFile); err != nil && !os.IsNotExist(err) {
-		cm.config.Logger.Errorf("删除chsrc可执行文件%s失败:%s", downloadFile, err)
+	cmdStr := "rm -rf $(which chsrc)"
+	cmdStr = utils.GenerateCmd(cmdStr, true, cm.config.IsRoot)
+	if err := utils.ExecCmd(cmdStr, cm.config.Logger); err != nil {
+		cm.config.Logger.Errorf("chsrc删除失败!")
 		return err
 	}
-	cm.config.Logger.Infof("删除chsrc可执行文件%s成功", downloadFile)
 	cm.config.Logger.Infof("chsrc删除成功!")
 	return nil
 }

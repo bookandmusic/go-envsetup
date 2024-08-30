@@ -14,6 +14,7 @@ type Config struct {
 	ARCH    string
 	OS      string
 	HomeDir string
+	IsRoot  bool
 }
 
 var (
@@ -40,6 +41,7 @@ func InitConfig() {
 			logger.Errorf("获取家目录失败: %s", err)
 			os.Exit(1)
 		}
+		isRoot := os.Geteuid() == 0
 
 		// 初始化全局配置对象
 		cfg = &Config{
@@ -47,6 +49,7 @@ func InitConfig() {
 			ARCH:    arch,
 			OS:      osType,
 			HomeDir: homeDir,
+			IsRoot:  isRoot,
 		}
 	})
 }

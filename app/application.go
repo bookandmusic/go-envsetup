@@ -13,5 +13,4 @@ type Manager interface {
 	Install(flags *GlobalFlags) error
 	Update(flags *GlobalFlags) error
 	Delete(flags *GlobalFlags) error
-	IsInstalled() bool
 }

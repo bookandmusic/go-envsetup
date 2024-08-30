@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
 	archiver "github.com/mholt/archiver/v3"
 
@@ -13,9 +12,12 @@ import (
 
 // Define VMRManager to handleVMRoperations
 type VMRManager struct {
-	Name   string
-	config *config.Config
-	vmrDir string
+	Name    string
+	ower    string
+	repo    string
+	tagName string
+	config  *config.Config
+	vmrDir  string
 }
 
 func NewVMRManager() *VMRManager {
@@ -23,64 +25,54 @@ func NewVMRManager() *VMRManager {
 
 	vmrDir := fmt.Sprintf("%s/.vmr", config.HomeDir)
 	return &VMRManager{
-		Name:   "vmr",
-		config: config,
-		vmrDir: vmrDir,
+		Name:    "vmr",
+		ower:    "gvcgo",
+		tagName: "v0.6.5",
+		repo:    "version-manager",
+		config:  config,
+		vmrDir:  vmrDir,
 	}
 }
 
 func (vm *VMRManager) Installing(flags *GlobalFlags) error {
+	srcFileName := fmt.Sprintf("vmr_%s-%s.zip", vm.config.OS, vm.config.ARCH)
+
 	// 获取最新的 GitHub 版本信息
 	githubInfo := utils.NewGithubRepoInfo(
-		"gvcgo", "version-manager",
-		fmt.Sprintf("vmr_%s-%s.zip", vm.config.OS, vm.config.ARCH),
+		vm.ower, vm.repo,
 		flags.HttpProxy,
 		flags.GithubProxy,
+		vm.config.Logger,
 	)
-
-	var (
-		tagName string
-		err     error
-	)
+	var tagName string
 	if flags.Tag == "" {
-		tagName, err = githubInfo.GetLatestReleaseTag()
-		if err != nil {
-			vm.config.Logger.Errorf("获取VMR最新版本失败:%s", err)
-			tagName = "v0.6.5"
+		tagName = githubInfo.GetLatestReleaseTag()
+		if tagName == "" {
+			tagName = vm.tagName
 		}
-		vm.config.Logger.Infof("获取VMR最新版本:%s", tagName)
 	} else {
 		tagName = flags.Tag
 	}
 
-	if err := os.MkdirAll(vm.vmrDir, os.ModePerm); err != nil {
-		vm.config.Logger.Errorf("创建目录%s失败:%s", vm.vmrDir, err)
+	if err := utils.Mkdir(vm.vmrDir, vm.config.Logger); err != nil {
 		return err
 	}
-	vm.config.Logger.Infof("已创建目录:%s", vm.vmrDir)
 
-	downloadFile := fmt.Sprintf("%s/%s", vm.vmrDir, githubInfo.FileName)
-	if err := os.RemoveAll(downloadFile); err != nil && !os.IsNotExist(err) {
-		vm.config.Logger.Errorf("清理文件%s失败:%s", downloadFile, err)
-		return err
-	}
-	vm.config.Logger.Infof("清理文件%s", downloadFile)
+	downloadFile := fmt.Sprintf("%s/%s", vm.vmrDir, srcFileName)
 
-	vmrPath := fmt.Sprintf("%s/vmr", vm.vmrDir)
-	if err := os.RemoveAll(vmrPath); err != nil && !os.IsNotExist(err) {
-		vm.config.Logger.Errorf("清理文件%s失败:%s", vmrPath, err)
+	if err := utils.RemoveFile(downloadFile, vm.config.Logger); err != nil {
 		return err
 	}
-	vm.config.Logger.Infof("清理文件%s", vmrPath)
 
-	vm.config.Logger.Infof("开始下载VMR,版本:%s,文件:%s", tagName, githubInfo.FileName)
-	if err := githubInfo.DownloadReleaseLatestFile(downloadFile, tagName); err != nil {
-		vm.config.Logger.Errorf("下载VMR文件%s失败:%s", githubInfo.FileName, err)
+	if err := githubInfo.DownloadReleaseLatestFile(downloadFile, srcFileName, tagName); err != nil {
 		return err
 	}
-	vm.config.Logger.Infof("已下载VMR文件:%s", githubInfo.FileName)
 
 	// 使用 archiver 解压 ZIP 文件
+	vmrPath := fmt.Sprintf("%s/vmr", vm.vmrDir)
+	if err := utils.RemoveFile(vmrPath, vm.config.Logger); err != nil {
+		return err
+	}
 	if err := archiver.Unarchive(downloadFile, vm.vmrDir); err != nil {
 		vm.config.Logger.Errorf("解压VMR文件%s失败:%s", downloadFile, err)
 		return err
@@ -88,11 +80,9 @@ func (vm *VMRManager) Installing(flags *GlobalFlags) error {
 	vm.config.Logger.Infof("已解压VMR文件:%s", downloadFile)
 
 	// 删除下载的VMR压缩文件
-	if err := os.Remove(downloadFile); err != nil {
-		vm.config.Logger.Errorf("删除下载的VMR压缩文件失败:%s", err)
-		return err
+	if err := utils.RemoveFile(downloadFile, vm.config.Logger); err != nil {
+		return nil
 	}
-	vm.config.Logger.Infof("删除下载的VMR压缩文件:%s", downloadFile)
 
 	confPath := fmt.Sprintf("%s/conf.toml", vm.vmrDir)
 	vm.config.Logger.Infof("生成VMR配置:%s", confPath)
@@ -163,10 +153,14 @@ fi
 # vm_envs end
 `
 	for _, shellFile := range shellFiles {
+		if !utils.FileExists(shellFile) {
+			continue
+		}
 		if err := utils.UpdateConfigFiles(shellFile, contentToAdd); err != nil {
 			vm.config.Logger.Errorf("文件%s添加配置失败：%s", shellFile, err)
 		} else {
-			vm.config.Logger.Infof("文件%s添加配置成功", shellFile)
+			vm.config.Logger.Infof("配置文件%s更新如下配置:", shellFile)
+			vm.config.Logger.Infof(contentToAdd)
 		}
 	}
 	return nil
@@ -177,7 +171,7 @@ func (vm *VMRManager) GetName() string {
 }
 
 func (vm *VMRManager) Install(flags *GlobalFlags) error {
-	if !flags.Force && vm.IsInstalled() {
+	if !flags.Force && vm.isInstalled() {
 		vm.config.Logger.Warn("VMR已经安装。使用 -f 选项强制重新安装。")
 		return nil
 	}
@@ -191,7 +185,7 @@ func (vm *VMRManager) Install(flags *GlobalFlags) error {
 }
 
 func (vm *VMRManager) Update(flags *GlobalFlags) error {
-	if !vm.IsInstalled() {
+	if !vm.isInstalled() {
 		vm.config.Logger.Warn("VMR尚未安装。请使用 'install' 命令首先安装它。")
 		return nil
 	}
@@ -236,7 +230,6 @@ func (vm *VMRManager) Delete(flags *GlobalFlags) error {
 	return nil
 }
 
-func (vm *VMRManager) IsInstalled() bool {
-	_, err := exec.LookPath("vmr")
-	return err == nil
+func (vm *VMRManager) isInstalled() bool {
+	return utils.IsCommandAvailable("vmr")
 }

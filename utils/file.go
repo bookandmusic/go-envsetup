@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"regexp"
+
+	"github.com/sirupsen/logrus"
 )
 
 func UpdateConfigFiles(filePath, content string) error {
@@ -48,5 +50,23 @@ func RemoveConfigFromFile(filePath, contentPattern string) error {
 		return err
 	}
 
+	return nil
+}
+
+func RemoveFile(filePath string, logger *logrus.Logger) error {
+	if err := os.RemoveAll(filePath); err != nil && !os.IsNotExist(err) {
+		logger.Errorf("清理文件%s失败:%s", filePath, err)
+		return err
+	}
+	logger.Infof("清理文件%s成功", filePath)
+	return nil
+}
+
+func Mkdir(path string, logger *logrus.Logger) error {
+	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		logger.Errorf("创建目录%s失败:%s", path, err)
+		return err
+	}
+	logger.Infof("已创建目录:%s", path)
 	return nil
 }

@@ -51,6 +51,8 @@ func CreateApp() *cli.App {
 	apps := []app.Manager{
 		app.NewChsrcManager(),
 		app.NewVMRManager(),
+		app.NewVimrcManager(),
+		app.NewOhMyZshManager(),
 	}
 
 	commands := []*cli.Command{
@@ -64,6 +66,8 @@ func CreateApp() *cli.App {
 				cfg := utils.TableConfig{
 					Header: table.Row{"名称", "描述"},
 					Data: []table.Row{
+						{"vimrc", "Vim编辑器的配置文件,用于定制编辑器的行为和外观"},
+						{"ohmyzsh", "一个增强Zsh配置的开源框架,提供丰富的插件、主题和配置选项"},
 						{"vmr", "一个简单、跨平台的版本管理器,用于管理多种 SDK 及其他工具"},
 						{"chsrc", "一个全平台的命令行换源工具"},
 					},
