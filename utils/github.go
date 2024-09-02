@@ -137,28 +137,47 @@ func (g *GithubRepoInfo) PullRepo(dstPath string) error {
 		g.logger.Infof("本地路径:%s存在, 但不是一个Git仓库, 无法pull repo:%s", dstPath, g.repo)
 		return err
 	}
+	g.logger.Infof("Pulling最新变更到本地仓库:%s...", dstPath)
 
 	// Get the working tree for the repository
-	w, err := repo.Worktree()
+	worktree, err := repo.Worktree()
 	if err != nil {
 		g.logger.Errorf("本地仓库%s无法获取工作树, 错误: %s", dstPath, err)
 		return err
 	}
 
+	err = worktree.Reset(&git.ResetOptions{Mode: git.HardReset})
+	if err != nil {
+		g.logger.Errorf("执行 git reset --hard 错误: %v", err)
+	}
+	g.logger.Infof("成功执行 git reset --hard")
+
+	// 执行 git clean -d --force 操作
+	err = worktree.Clean(&git.CleanOptions{
+		Dir: true,
+	})
+	if err != nil {
+		g.logger.Errorf("执行 git clean -d --force 错误: %v", err)
+	}
+	g.logger.Infof("成功执行 git clean -d --force")
+
 	// Pull the latest changes from the remote repository
-	g.logger.Infof("Pulling最新变更到本地仓库:%s...", dstPath)
-	err = w.Pull(&git.PullOptions{
-		RemoteName: "origin",
-		Progress:   os.Stdout,
+	err = worktree.Pull(&git.PullOptions{
+		RemoteName:        "origin",
+		Progress:          os.Stdout,
+		Depth:             1,
+		Force:             true,
+		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
-			g.logger.Infof("本地仓库%s已经是最新的", dstPath)
+			g.logger.Infof("本地仓库%s已经是最新的,无需拉取", dstPath)
 			return nil
 		}
-		g.logger.Errorf("Pull仓库:%s失败, 错误: %s", g.repo, err)
+		g.logger.Errorf("执行 git pull --rebase 错误: %s", err)
 		return err
 	}
+	g.logger.Infof("成功执行 git pull --rebase")
 
 	g.logger.Infof("Pull repo:%s成功", g.repo)
 	return nil

@@ -106,6 +106,9 @@ func (v *OhMyZshManager) Install(flags *GlobalFlags) error {
 	v.config.Logger.Infof("生成配置文件.zshrc成功!")
 
 	cmdStr = "sed -i 's/plugins=(git)/plugins=(git sudo zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc"
+	if v.config.OS == "darwin" {
+		cmdStr = "sed -i '' 's/plugins=(git)/plugins=(git sudo zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc"
+	}
 	if err := utils.ExecCmd(cmdStr, v.config.Logger); err != nil {
 		v.config.Logger.Errorf("修改~/.zshrc配置文件启用插件失败!")
 		return err

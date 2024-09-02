@@ -77,6 +77,9 @@ func (v *VimrcManager) Update(flags *GlobalFlags) error {
 	tmpUpdatePluginFile := "~/.vim_runtime/update_plugins-bak.py"
 	if flags.GithubProxy != "" {
 		cmdStr = fmt.Sprintf("cp %s %s && sed -i 's|https://github.com|https://mirror.ghproxy.com/https://github.com|g' %s", updatePluginFile, tmpUpdatePluginFile, updatePluginFile)
+		if v.config.OS == "darwin" {
+			cmdStr = fmt.Sprintf("cp %s %s && sed -i '' 's|https://github.com|https://mirror.ghproxy.com/https://github.com|g' %s", updatePluginFile, tmpUpdatePluginFile, updatePluginFile)
+		}
 		if err := utils.ExecCmd(cmdStr, v.config.Logger); err != nil {
 			v.config.Logger.Errorf("更新GitHub镜像地址失败!")
 			return err
@@ -96,20 +99,23 @@ func (v *VimrcManager) Update(flags *GlobalFlags) error {
 		v.config.Logger.Errorf("系统中不存在python解释器，无法更新插件")
 		return nil
 	}
-	if err := utils.ExecCmd(cmdStr, v.config.Logger); err != nil {
+	var err error
+	err = utils.ExecCmd(cmdStr, v.config.Logger)
+	if err != nil {
 		v.config.Logger.Errorf("更新插件失败!")
-		return err
+	} else {
+		v.config.Logger.Infof("更新插件成功!")
 	}
-	v.config.Logger.Infof("更新插件成功!")
+
 	if flags.GithubProxy != "" {
-		cmdStr = fmt.Sprintf("cp %s %s && rm -rf %s", tmpUpdatePluginFile, updatePluginFile, tmpUpdatePluginFile)
-		if err := utils.ExecCmd(cmdStr, v.config.Logger); err != nil {
-			v.config.Logger.Errorf("删除临时插件文件失败!")
+		cmdStr = fmt.Sprintf("mv %s %s", tmpUpdatePluginFile, updatePluginFile)
+		if err = utils.ExecCmd(cmdStr, v.config.Logger); err != nil {
+			v.config.Logger.Errorf("恢复原始插件文件失败!")
 			return err
 		}
-		v.config.Logger.Infof("删除临时插件文件成功!")
+		v.config.Logger.Infof("恢复原始插件文件成功!")
 	}
-	return nil
+	return err
 }
 
 func (v *VimrcManager) Delete(flags *GlobalFlags) error {
