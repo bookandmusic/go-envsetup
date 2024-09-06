@@ -31,7 +31,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p build/${{ matrix.goos }}_${{ matrix.goarch }}
-          go build -o build/${{ matrix.goos }}_${{ matrix.goarch }}/envsetup
+          CGO_ENABLED=0 go build -a -ldflags '-extldflags "-static"' -o build/${{ matrix.goos }}_${{ matrix.goarch }}/envsetup
 
       - name: Archive binary
         run: |
